@@ -1,56 +1,48 @@
-// Import MCP SDK components
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// Import components
 import { McpGodot } from './godot/mcpGodot.js';
 import { Logger, LogLevel } from './utils/logger.js';
-import { createExecuteCommandTool } from './tools/executeCommandTool.js';
-import { createSelectNodeTool } from './tools/selectNodeTool.js';
-import { createUpdatePropertyTool } from './tools/updatePropertyTool.js';
-import { createAddNodeTool } from './tools/addNodeTool.js';
-import { createNotifyMessageTool } from './tools/notifyMessageTool.js';
-import { createGetSceneTreeResource } from './resources/getSceneTreeResource.js';
-import { createGetNodeInfoResource } from './resources/getNodeInfoResource.js';
-import { createGetEditorLogsResource } from './resources/getEditorLogsResource.js';
+import { GodotCommandHandler } from './commands/commandHandler.js';
 // Initialize loggers
 const serverLogger = new Logger('Server', LogLevel.INFO);
 const godotLogger = new Logger('Godot', LogLevel.INFO);
-const toolLogger = new Logger('Tools', LogLevel.INFO);
-const resourceLogger = new Logger('Resources', LogLevel.INFO);
-// Initialize the MCP server
-const server = new McpServer({
-    name: "MCP Godot Server",
-    version: "1.0.0"
-}, {
-    capabilities: {
-        tools: {},
-        resources: {},
-    },
-});
-// Initialize MCP HTTP bridge with Godot editor
+const commandLogger = new Logger('Command', LogLevel.INFO);
+// Initialize MCP Godot connection
 const mcpGodot = new McpGodot(godotLogger);
-// Add all tools to the registry
-createExecuteCommandTool(server, mcpGodot, toolLogger);
-createSelectNodeTool(server, mcpGodot, toolLogger);
-createUpdatePropertyTool(server, mcpGodot, toolLogger);
-createAddNodeTool(server, mcpGodot, toolLogger);
-createNotifyMessageTool(server, mcpGodot, toolLogger);
-// Create and register all resources with the MCP server
-createGetSceneTreeResource(server, mcpGodot, resourceLogger);
-createGetNodeInfoResource(server, mcpGodot, resourceLogger);
-createGetEditorLogsResource(server, mcpGodot, resourceLogger);
+// Initialize command handler
+const commandHandler = new GodotCommandHandler(mcpGodot, commandLogger);
 // Server startup function
 async function startServer() {
     try {
-        // Initialize STDIO transport for MCP client communication
-        const stdioTransport = new StdioServerTransport();
-        // Connect the server to the transport
-        await server.connect(stdioTransport);
-        serverLogger.info('MCP Server started');
-        // Get the client name from the MCP server
-        const clientName = server.server.getClientVersion()?.name || 'Unknown MCP Client';
-        serverLogger.info(`Connected MCP client: ${clientName}`);
-        // Start Godot Bridge connection with client name in headers
-        await mcpGodot.start(clientName);
+        serverLogger.info('MCP Godot Server starting...');
+        // Start Godot Bridge connection
+        await mcpGodot.start();
+        serverLogger.info('MCP Godot Server started successfully');
+        serverLogger.info(`Listening on port ${process.env.GODOT_PORT || 8090}`);
+        serverLogger.info('Waiting for Godot editor to connect...');
+        // Example of how to send a command to Godot
+        // This is just for testing and can be removed in production
+        setTimeout(async () => {
+            try {
+                serverLogger.info('Sending test notification to Godot...');
+                const notifyCommand = {
+                    type: 'notify',
+                    params: {
+                        message: 'MCP Godot Server connected successfully!',
+                        level: 'info'
+                    }
+                };
+                const result = await commandHandler.handle(notifyCommand);
+                if (result.success) {
+                    serverLogger.info('Test notification sent successfully', result);
+                }
+                else {
+                    serverLogger.warn('Test notification failed', result);
+                }
+            }
+            catch (error) {
+                serverLogger.error('Failed to send test notification', error);
+            }
+        }, 5000);
     }
     catch (error) {
         serverLogger.error('Failed to start server', error);
