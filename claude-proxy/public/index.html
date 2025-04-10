@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Godot 控制面板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .code-block {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>MCP Godot 控制面板</h1>
+    <p>这个页面提供了与 MCP Godot 交互的指南和代码示例，可以复制到 Claude 对话中使用。</p>
+    
+    <h2>连接状态</h2>
+    <div id="connection-status">检查连接中...</div>
+    
+    <h2>可用命令</h2>
+    <div id="commands-list">加载中...</div>
+    
+    <h2>使用方法</h2>
+    <p>将以下代码复制到 Claude 对话中，以启用与 MCP Godot 的交互功能：</p>
+    
+    <div class="code-block">
+        <pre id="claude-code">// 将此代码复制到 Claude 对话中
+// MCP Godot 控制代码
+// 这段代码允许 Claude 与 Godot 编辑器交互
+
+async function sendToGodot(method, params = {}) {
+  try {
+    const response = await fetch('http://localhost:3000/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ method, params }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP error ${response.status}: ${errorText}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error sending command to Godot:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// 示例：创建一个 3D 场景
+// const result = await sendToGodot('create_scene', { template: '3d' });
+// console.log(result);
+
+// 示例：添加一个立方体节点
+// const result = await sendToGodot('add_node', { node_type: 'CSGBox3D', node_name: 'Cube' });
+// console.log(result);</pre>
+    </div>
+    
+    <button id="copy-code">复制代码</button>
+    
+    <h2>命令示例</h2>
+    <p>以下是一些常用命令的示例，可以复制到 Claude 对话中使用：</p>
+    
+    <h3>创建 3D 场景</h3>
+    <div class="code-block">
+        <pre>const result = await sendToGodot('create_scene', { template: '3d' });
+console.log(result);</pre>
+    </div>
+    
+    <h3>添加立方体节点</h3>
+    <div class="code-block">
+        <pre>const result = await sendToGodot('add_node', { node_type: 'CSGBox3D', node_name: 'Cube' });
+console.log(result);</pre>
+    </div>
+    
+    <h3>设置节点属性</h3>
+    <div class="code-block">
+        <pre>// 注意：需要替换为实际的节点路径
+const result = await sendToGodot('set_property', { 
+  node_path: '节点路径', 
+  property: 'size', 
+  value: { x: 2, y: 2, z: 2 } 
+});
+console.log(result);</pre>
+    </div>
+    
+    <h3>创建并附加脚本</h3>
+    <div class="code-block">
+        <pre>// 创建脚本
+const createResult = await sendToGodot('create_script', {
+  path: 'res://test_script.gd',
+  content: `extends CSGBox3D
+
+func _ready():
+    print("测试脚本已加载")
+    
+func _process(delta):
+    rotate_y(delta * 0.5)`
+});
+console.log(createResult);
+
+// 附加脚本到节点
+const attachResult = await sendToGodot('attach_script', {
+  node_path: '节点路径',
+  script_path: 'res://test_script.gd'
+});
+console.log(attachResult);</pre>
+    </div>
+    
+    <script>
+        // 检查连接状态
+        async function checkConnection() {
+            try {
+                const response = await fetch('http://localhost:3000/health');
+                const data = await response.json();
+                
+                const statusElement = document.getElementById('connection-status');
+                if (data.connected) {
+                    statusElement.innerHTML = '✅ 已连接到 MCP Godot';
+                    statusElement.style.color = 'green';
+                } else {
+                    statusElement.innerHTML = '⚠️ 已连接到代理服务器，但未连接到 MCP Godot';
+                    statusElement.style.color = 'orange';
+                }
+            } catch (error) {
+                const statusElement = document.getElementById('connection-status');
+                statusElement.innerHTML = '❌ 无法连接到代理服务器';
+                statusElement.style.color = 'red';
+            }
+        }
+        
+        // 获取可用命令
+        async function getCommands() {
+            try {
+                const response = await fetch('http://localhost:3000/commands');
+                const data = await response.json();
+                
+                const commandsElement = document.getElementById('commands-list');
+                let html = '<ul>';
+                
+                data.commands.forEach(cmd => {
+                    html += `<li><strong>${cmd.name}</strong>: ${cmd.description} (参数: ${cmd.params.join(', ') || '无'})</li>`;
+                });
+                
+                html += '</ul>';
+                commandsElement.innerHTML = html;
+            } catch (error) {
+                const commandsElement = document.getElementById('commands-list');
+                commandsElement.innerHTML = '无法获取命令列表';
+            }
+        }
+        
+        // 复制代码到剪贴板
+        document.getElementById('copy-code').addEventListener('click', function() {
+            const codeElement = document.getElementById('claude-code');
+            const range = document.createRange();
+            range.selectNode(codeElement);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            document.execCommand('copy');
+            window.getSelection().removeAllRanges();
+            
+            this.textContent = '已复制!';
+            setTimeout(() => {
+                this.textContent = '复制代码';
+            }, 2000);
+        });
+        
+        // 初始化
+        checkConnection();
+        getCommands();
+        
+        // 每 5 秒检查一次连接状态
+        setInterval(checkConnection, 5000);
+    </script>
+</body>
+</html>
