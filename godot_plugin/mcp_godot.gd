@@ -12,24 +12,19 @@ func _enter_tree():
 	editor_interface = get_editor_interface()
 	
 	# 创建 WebSocket 服务器
-	server = WebSocketServer.new()
-	server.connect("client_connected", _client_connected)
-	server.connect("client_disconnected", _client_disconnected)
-	server.connect("client_close_request", _client_close_request)
-	server.connect("data_received", _data_received)
-	
-	# 启动服务器
-	var err = server.listen(PORT)
+	var tcp_server = TCPServer.new()
+	var err = tcp_server.listen(PORT)
 	if err != OK:
 		push_error("无法启动 MCP Godot WebSocket 服务器: %s" % err)
 		return
 	
 	print("MCP Godot WebSocket 服务器已启动，监听端口: %d" % PORT)
+	tcp_server.connect("connection_accepted", self, "_on_connection_accepted")
 
 func _exit_tree():
 	# 清理插件
 	if server:
-		server.stop()
+		server.close()
 		server = null
 	
 	print("MCP Godot 插件已卸载")
@@ -39,9 +34,12 @@ func _process(delta):
 	if server:
 		server.poll()
 
-func _client_connected(id, protocol):
-	print("MCP 客户端已连接: %d" % id)
-	clients[id] = {
+func _on_connection_accepted(peer):
+	server = WebSocketPeer.new()
+	server.set_peer(peer)
+	server.connect("data_received", self, "_data_received")
+	server.connect("disconnected", self, "_client_disconnected")
+	clients[server.get_peer(1).get_remote_address()] = {
 		"name": "Unknown Client",
 		"pending_requests": {}
 	}
@@ -51,12 +49,9 @@ func _client_disconnected(id, was_clean_close):
 	if clients.has(id):
 		clients.erase(id)
 
-func _client_close_request(id, code, reason):
-	print("MCP 客户端请求关闭连接: %d (code: %d, reason: %s)" % [id, code, reason])
-
 func _data_received(id):
 	# 处理接收到的数据
-	var data = server.get_peer(id).get_packet().get_string_from_utf8()
+	var data = server.get_peer(1).get_packet().get_string_from_utf8()
 	print("收到来自 MCP 客户端的数据: %s" % data)
 	
 	# 解析 JSON 请求
@@ -1073,7 +1068,7 @@ func _send_success_response(client_id, request_id, result):
 	}
 	
 	var json_string = JSON.stringify(response)
-	server.get_peer(client_id).put_packet(json_string.to_utf8_buffer())
+	server.get_peer(1).put_packet(json_string.to_utf8_buffer())
 
 # 发送错误响应
 func _send_error_response(client_id, message, error_type, request_id = ""):
@@ -1087,4 +1082,4 @@ func _send_error_response(client_id, message, error_type, request_id = ""):
 	}
 	
 	var json_string = JSON.stringify(response)
-	server.get_peer(client_id).put_packet(json_string.to_utf8_buffer())
+	server.get_peer(1).put_packet(json_string.to_utf8_buffer())

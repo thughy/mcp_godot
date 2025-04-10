@@ -126,6 +126,20 @@ func _handle_message(peer_id, data):
 		"duplicate_node":
 			_handle_duplicate_node(peer_id, request_id, params)
 		
+		# 属性操作命令
+		"set_property":
+			_handle_set_property(peer_id, request_id, params)
+		"get_property":
+			_handle_get_property(peer_id, request_id, params)
+		
+		# 脚本操作命令
+		"create_script":
+			_handle_create_script(peer_id, request_id, params)
+		"attach_script":
+			_handle_attach_script(peer_id, request_id, params)
+		"edit_script":
+			_handle_edit_script(peer_id, request_id, params)
+		
 		# 通知命令
 		"notify":
 			_handle_notify(peer_id, request_id, params)
@@ -150,13 +164,19 @@ func _handle_create_scene(peer_id, request_id, params):
 		scene_root = Node3D.new()
 		scene_root.name = "Node3D"
 		
+		# 添加摄像机
 		var camera = Camera3D.new()
 		camera.name = "Camera3D"
+		camera.transform.origin = Vector3(0, 1, 5)
+		camera.transform = camera.transform.looking_at(Vector3(0, 0, 0))
 		scene_root.add_child(camera)
 		camera.owner = scene_root
 		
+		# 添加光源
 		var light = DirectionalLight3D.new()
 		light.name = "DirectionalLight3D"
+		light.transform.origin = Vector3(0, 5, 0)
+		light.transform = light.transform.looking_at(Vector3(1, -1, 1))
 		scene_root.add_child(light)
 		light.owner = scene_root
 	elif template == "2d":
@@ -164,6 +184,7 @@ func _handle_create_scene(peer_id, request_id, params):
 		scene_root = Node2D.new()
 		scene_root.name = "Node2D"
 		
+		# 添加摄像机
 		var camera = Camera2D.new()
 		camera.name = "Camera2D"
 		scene_root.add_child(camera)
@@ -173,14 +194,29 @@ func _handle_create_scene(peer_id, request_id, params):
 		scene_root = Node.new()
 		scene_root.name = "Node"
 	
-	# 设置场景为当前编辑场景
-	editor_interface.get_editor_main_screen().get_tree().get_root().add_child(scene_root)
-	editor_interface.get_selection().clear()
-	editor_interface.get_selection().add_node(scene_root)
+	# 创建一个新的场景树
+	var scene = SceneTree.new()
+	scene.root.add_child(scene_root)
 	
+	# 获取当前编辑界面
+	var editor_main_screen = editor_interface.get_editor_main_screen()
+	
+	# 将新场景设置为当前编辑场景
+	editor_interface.get_editor_settings().set_setting("filesystem/file_dialog/show_hidden_files", true)
+	
+	# 创建一个临时场景文件
+	var temp_scene_path = "res://temp_scene.tscn"
+	var packed_scene = PackedScene.new()
+	packed_scene.pack(scene_root)
+	ResourceSaver.save(packed_scene, temp_scene_path)
+	
+	# 打开临时场景
+	editor_interface.open_scene_from_path(temp_scene_path)
+	
+	# 发送成功响应
 	_send_success_response(peer_id, request_id, "场景创建成功", {
 		"scene_name": scene_root.name,
-		"scene_path": scene_root.get_path()
+		"scene_path": temp_scene_path
 	})
 
 func _handle_open_scene(peer_id, request_id, params):
@@ -205,21 +241,53 @@ func _handle_save_scene(peer_id, request_id, params):
 	var path = params.path if params.has("path") else ""
 	print("保存场景，路径: %s" % path)
 	
+	var scene = editor_interface.get_edited_scene_root()
+	if not scene:
+		_send_error_response(peer_id, "没有正在编辑的场景", "save_scene_error", request_id)
+		return
+	
 	# 保存场景
 	if path.is_empty():
 		# 保存当前场景
-		editor_interface.save_scene()
-		_send_success_response(peer_id, request_id, "场景保存成功", {})
+		var current_path = scene.scene_file_path
+		if current_path.is_empty():
+			current_path = "res://temp_scene.tscn"
+		
+		var packed_scene = PackedScene.new()
+		var result = packed_scene.pack(scene)
+		if result == OK:
+			var err = ResourceSaver.save(packed_scene, current_path)
+			if err == OK:
+				_send_success_response(peer_id, request_id, "场景保存成功", {
+					"scene_path": current_path
+				})
+			else:
+				_send_error_response(peer_id, "无法保存场景: %s" % err, "save_scene_error", request_id)
+		else:
+			_send_error_response(peer_id, "无法打包场景: %s" % result, "save_scene_error", request_id)
 	else:
 		# 保存到指定路径
-		var error = editor_interface.save_scene_as(path)
-		if error != OK:
-			_send_error_response(peer_id, "无法保存场景: %s" % error, "save_scene_error", request_id)
-			return
+		# 检查路径是否有效
+		if not path.begins_with("res://"):
+			path = "res://" + path
 		
-		_send_success_response(peer_id, request_id, "场景保存成功", {
-			"scene_path": path
-		})
+		# 确保目录存在
+		var dir = path.get_base_dir()
+		if not DirAccess.dir_exists_absolute(dir):
+			DirAccess.make_dir_recursive_absolute(dir)
+		
+		var packed_scene = PackedScene.new()
+		var result = packed_scene.pack(scene)
+		if result == OK:
+			var err = ResourceSaver.save(packed_scene, path)
+			if err == OK:
+				_send_success_response(peer_id, request_id, "场景保存成功", {
+					"scene_path": path
+				})
+			else:
+				_send_error_response(peer_id, "无法保存场景: %s" % err, "save_scene_error", request_id)
+		else:
+			_send_error_response(peer_id, "无法打包场景: %s" % result, "save_scene_error", request_id)
 
 func _handle_close_scene(peer_id, request_id, params):
 	print("关闭当前场景")
@@ -228,6 +296,149 @@ func _handle_close_scene(peer_id, request_id, params):
 	editor_interface.get_editor_main_screen().get_tree().get_root().get_child(0).queue_free()
 	
 	_send_success_response(peer_id, request_id, "场景关闭成功", {})
+
+# 属性操作处理函数
+func _handle_set_property(peer_id, request_id, params):
+	if not params.has("node_path") or not params.has("property") or not params.has("value"):
+		_send_error_response(peer_id, "缺少必需的参数: node_path, property, value", "invalid_params", request_id)
+		return
+	
+	var node_path = params.node_path
+	var property_name = params.property
+	var property_value = params.value
+	print("设置属性: %s.%s = %s" % [node_path, property_name, property_value])
+	
+	var scene = editor_interface.get_edited_scene_root()
+	if scene:
+		var node = scene.get_node_or_null(node_path)
+		if node:
+			if property_name in node:
+				node.set(property_name, property_value)
+				_send_success_response(peer_id, request_id, "成功设置属性: %s.%s" % [node_path, property_name], {
+					"node_path": node_path,
+					"property": property_name,
+					"value": property_value
+				})
+			else:
+				_send_error_response(peer_id, "节点没有属性: %s" % property_name, "property_not_found", request_id)
+		else:
+			_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
+	else:
+		_send_error_response(peer_id, "没有打开的场景", "no_scene", request_id)
+
+func _handle_get_property(peer_id, request_id, params):
+	if not params.has("node_path") or not params.has("property"):
+		_send_error_response(peer_id, "缺少必需的参数: node_path, property", "invalid_params", request_id)
+		return
+	
+	var node_path = params.node_path
+	var property_name = params.property
+	print("获取属性: %s.%s" % [node_path, property_name])
+	
+	var scene = editor_interface.get_edited_scene_root()
+	if scene:
+		var node = scene.get_node_or_null(node_path)
+		if node:
+			if property_name in node:
+				var value = node.get(property_name)
+				_send_success_response(peer_id, request_id, "成功获取属性: %s.%s" % [node_path, property_name], {
+					"node_path": node_path,
+					"property": property_name,
+					"value": value
+				})
+			else:
+				_send_error_response(peer_id, "节点没有属性: %s" % property_name, "property_not_found", request_id)
+		else:
+			_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
+	else:
+		_send_error_response(peer_id, "没有打开的场景", "no_scene", request_id)
+
+# 脚本操作处理函数
+func _handle_create_script(peer_id, request_id, params):
+	if not params.has("path") or not params.has("content"):
+		_send_error_response(peer_id, "缺少必需的参数: path, content", "invalid_params", request_id)
+		return
+	
+	var script_path = params.path
+	var script_content = params.content
+	print("创建脚本: %s" % script_path)
+	
+	# 确保路径有效
+	if not script_path.begins_with("res://"):
+		script_path = "res://" + script_path
+	
+	# 确保目录存在
+	var dir = script_path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(dir):
+		DirAccess.make_dir_recursive_absolute(dir)
+	
+	# 写入脚本内容
+	var file = FileAccess.open(script_path, FileAccess.WRITE)
+	if file:
+		file.store_string(script_content)
+		file.close()
+		_send_success_response(peer_id, request_id, "脚本创建成功", {
+			"script_path": script_path
+		})
+	else:
+		_send_error_response(peer_id, "无法写入脚本文件", "script_write_error", request_id)
+
+func _handle_attach_script(peer_id, request_id, params):
+	if not params.has("node_path") or not params.has("script_path"):
+		_send_error_response(peer_id, "缺少必需的参数: node_path, script_path", "invalid_params", request_id)
+		return
+	
+	var node_path = params.node_path
+	var script_path = params.script_path
+	print("附加脚本到节点: %s -> %s" % [node_path, script_path])
+	
+	# 确保路径有效
+	if not script_path.begins_with("res://"):
+		script_path = "res://" + script_path
+	
+	var scene = editor_interface.get_edited_scene_root()
+	if scene:
+		var node = scene.get_node_or_null(node_path)
+		if node:
+			# 加载脚本
+			var script = load(script_path)
+			if script:
+				# 附加脚本到节点
+				node.set_script(script)
+				_send_success_response(peer_id, request_id, "脚本附加成功", {
+					"node_path": node_path,
+					"script_path": script_path
+				})
+			else:
+				_send_error_response(peer_id, "无法加载脚本: %s" % script_path, "script_load_error", request_id)
+		else:
+			_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
+	else:
+		_send_error_response(peer_id, "没有打开的场景", "no_scene", request_id)
+
+func _handle_edit_script(peer_id, request_id, params):
+	if not params.has("script_path") or not params.has("content"):
+		_send_error_response(peer_id, "缺少必需的参数: script_path, content", "invalid_params", request_id)
+		return
+	
+	var script_path = params.script_path
+	var script_content = params.content
+	print("编辑脚本: %s" % script_path)
+	
+	# 确保路径有效
+	if not script_path.begins_with("res://"):
+		script_path = "res://" + script_path
+	
+	# 写入脚本内容
+	var file = FileAccess.open(script_path, FileAccess.WRITE)
+	if file:
+		file.store_string(script_content)
+		file.close()
+		_send_success_response(peer_id, request_id, "脚本编辑成功", {
+			"script_path": script_path
+		})
+	else:
+		_send_error_response(peer_id, "无法写入脚本文件", "script_write_error", request_id)
 
 # 节点操作处理函数
 func _handle_add_node(peer_id, request_id, params):
@@ -292,6 +503,14 @@ func _handle_add_node(peer_id, request_id, params):
 			node = Area3D.new()
 		"Area2D":
 			node = Area2D.new()
+		"CSGBox3D":
+			node = CSGBox3D.new()
+		"CSGSphere3D":
+			node = CSGSphere3D.new()
+		"CSGCylinder3D":
+			node = CSGCylinder3D.new()
+		"CSGTorus3D":
+			node = CSGTorus3D.new()
 		_:
 			_send_error_response(peer_id, "不支持的节点类型: %s" % node_type, "unsupported_node_type", request_id)
 			return
@@ -299,6 +518,12 @@ func _handle_add_node(peer_id, request_id, params):
 	# 设置节点名称
 	if not node_name.is_empty():
 		node.name = node_name
+	
+	# 获取当前编辑场景的根节点
+	var scene_root = editor_interface.get_edited_scene_root()
+	if not scene_root:
+		_send_error_response(peer_id, "没有打开的场景", "no_open_scene", request_id)
+		return
 	
 	# 添加到父节点
 	var parent = null
@@ -309,14 +534,14 @@ func _handle_add_node(peer_id, request_id, params):
 			parent = selected_nodes[0]
 		else:
 			# 添加到场景根节点
-			parent = editor_interface.get_edited_scene_root()
+			parent = scene_root
 	else:
 		# 添加到指定路径的节点
-		parent = editor_interface.get_edited_scene_root().get_node(parent_path)
+		parent = scene_root.get_node(parent_path)
 	
 	if parent:
 		parent.add_child(node)
-		node.owner = editor_interface.get_edited_scene_root()
+		node.owner = scene_root
 		
 		# 选中新添加的节点
 		editor_interface.get_selection().clear()
@@ -339,8 +564,14 @@ func _handle_remove_node(peer_id, request_id, params):
 	var node_path = params.node_path
 	print("删除节点: %s" % node_path)
 	
+	# 获取当前编辑场景的根节点
+	var scene_root = editor_interface.get_edited_scene_root()
+	if not scene_root:
+		_send_error_response(peer_id, "没有打开的场景", "no_open_scene", request_id)
+		return
+	
 	# 获取节点
-	var node = editor_interface.get_edited_scene_root().get_node(node_path)
+	var node = scene_root.get_node(node_path)
 	if not node:
 		_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
 		return
@@ -360,8 +591,14 @@ func _handle_select_node(peer_id, request_id, params):
 	var node_path = params.node_path
 	print("选择节点: %s" % node_path)
 	
+	# 获取当前编辑场景的根节点
+	var scene_root = editor_interface.get_edited_scene_root()
+	if not scene_root:
+		_send_error_response(peer_id, "没有打开的场景", "no_open_scene", request_id)
+		return
+	
 	# 获取节点
-	var node = editor_interface.get_edited_scene_root().get_node(node_path)
+	var node = scene_root.get_node(node_path)
 	if not node:
 		_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
 		return
@@ -384,8 +621,14 @@ func _handle_duplicate_node(peer_id, request_id, params):
 	var node_path = params.node_path
 	print("复制节点: %s" % node_path)
 	
+	# 获取当前编辑场景的根节点
+	var scene_root = editor_interface.get_edited_scene_root()
+	if not scene_root:
+		_send_error_response(peer_id, "没有打开的场景", "no_open_scene", request_id)
+		return
+	
 	# 获取节点
-	var node = editor_interface.get_edited_scene_root().get_node(node_path)
+	var node = scene_root.get_node(node_path)
 	if not node:
 		_send_error_response(peer_id, "找不到节点: %s" % node_path, "node_not_found", request_id)
 		return
@@ -393,7 +636,7 @@ func _handle_duplicate_node(peer_id, request_id, params):
 	# 复制节点
 	var duplicate = node.duplicate()
 	node.get_parent().add_child(duplicate)
-	duplicate.owner = editor_interface.get_edited_scene_root()
+	duplicate.owner = scene_root
 	
 	# 选择复制的节点
 	editor_interface.get_selection().clear()
@@ -457,6 +700,7 @@ func _send_success_response(peer_id, request_id, message, data):
 		response["id"] = request_id
 	
 	var json_string = JSON.stringify(response)
+	print("发送响应: %s" % json_string)
 	peers[peer_id].ws.send_text(json_string)
 
 # 发送错误响应
@@ -474,4 +718,5 @@ func _send_error_response(peer_id, message, error_type, request_id = ""):
 		response["id"] = request_id
 	
 	var json_string = JSON.stringify(response)
+	print("发送错误响应: %s" % json_string)
 	peers[peer_id].ws.send_text(json_string)

@@ -1,24 +1,39 @@
 # MCP Godot
 
-MCP Godot 是一个为 Godot 游戏引擎实现的 Model Context Protocol (MCP) 集成。它允许 AI 助手（如 Claude、Windsurf 和 Cursor）与 Godot 编辑器交互，执行各种操作。
+MCP Godot 是一个为 Godot 游戏引擎实现的 Model Context Protocol (MCP) 集成。它允许 AI 助手（如 Claude、Windsurf 和 Cursor）与 Godot 编辑器交互，执行各种操作。该实现是最小化、稳定和可靠的，支持完整的游戏开发工作流程。
 
 ## 功能
 
 MCP Godot 提供以下核心功能：
 
-### 工具
+### 场景操作
 
-- `execute_command`: 执行 Godot 编辑器命令
-- `select_node`: 在场景树中选择节点
-- `update_property`: 更新节点的属性
+- `create_scene`: 创建新场景（支持 2D 和 3D 模板）
+- `open_scene`: 打开现有场景
+- `save_scene`: 保存当前场景
+- `close_scene`: 关闭当前场景
+
+### 节点操作
+
 - `add_node`: 向场景中添加新节点
-- `notify_message`: 在 Godot 编辑器中显示通知消息
+- `remove_node`: 从场景中移除节点
+- `select_node`: 在场景树中选择节点
+- `duplicate_node`: 复制现有节点
 
-### 资源
+### 属性操作
 
-- `godot://scene-tree`: 获取当前场景树结构
-- `godot://node/{nodePath}`: 获取特定节点的详细信息
-- `godot://logs`: 获取 Godot 编辑器日志
+- `set_property`: 设置节点的属性值
+- `get_property`: 获取节点的属性值
+
+### 脚本操作
+
+- `create_script`: 创建新脚本
+- `attach_script`: 将脚本附加到节点
+- `edit_script`: 编辑现有脚本
+
+### 通知操作
+
+- `notify`: 在 Godot 编辑器中显示通知消息
 
 ## 要求
 

@@ -51,58 +51,93 @@ export class McpGodot {
     async sendRequest(method, params = {}) {
         if (!this.isConnected) {
             try {
+                this.logger.info(`Not connected to Godot, attempting to connect...`);
                 await this.connect();
+                this.logger.info(`Successfully connected to Godot`);
             }
             catch (error) {
-                throw new Error(`Failed to connect to Godot: ${error instanceof Error ? error.message : String(error)}`);
+                const errorMsg = `Failed to connect to Godot: ${error instanceof Error ? error.message : String(error)}`;
+                this.logger.error(errorMsg);
+                throw new Error(errorMsg);
             }
         }
         const id = uuidv4();
         const request = { id, method, params };
         return new Promise((resolve, reject) => {
+            // 设置请求超时
             const timeoutId = setTimeout(() => {
-                reject(new Error('Request timeout'));
-            }, 10000);
-            // Set up a one-time message handler for this request
-            const messageHandler = (event) => {
+                const errorMsg = `Request timeout for method: ${method}`;
+                this.logger.error(errorMsg);
+                reject(new Error(errorMsg));
+            }, 15000); // 增加超时时间到 15 秒
+            // 设置消息处理函数
+            const messageHandler = (data) => {
                 try {
-                    const response = JSON.parse(event.data.toString());
+                    // 确保数据是字符串
+                    if (!data) {
+                        this.logger.warn(`Received empty WebSocket message`);
+                        return; // 忽略空消息
+                    }
+                    const dataStr = data.toString();
+                    this.logger.debug(`Received response: ${dataStr}`);
+                    // 解析 JSON 响应
+                    const response = JSON.parse(dataStr);
+                    // 检查是否是当前请求的响应
                     if (response.id === id) {
-                        // Remove the message handler
+                        // 移除消息处理函数
                         if (this.ws) {
                             this.ws.removeListener('message', messageHandler);
                         }
                         clearTimeout(timeoutId);
+                        // 处理响应
                         if (response.error) {
-                            reject(new Error(response.error.message || 'Unknown error'));
+                            const errorMsg = response.error.message || 'Unknown error';
+                            this.logger.error(`Error response for method ${method}: ${errorMsg}`);
+                            reject(new Error(errorMsg));
+                        }
+                        else if (!response.success && response.message) {
+                            // 有些响应可能没有 error 字段，但有 success=false
+                            const errorMsg = response.message;
+                            this.logger.error(`Failed response for method ${method}: ${errorMsg}`);
+                            reject(new Error(errorMsg));
                         }
                         else {
-                            resolve(response.result);
+                            this.logger.debug(`Successful response for method ${method}`);
+                            resolve(response);
                         }
                     }
                 }
                 catch (e) {
                     this.logger.error(`Error parsing WebSocket message: ${e instanceof Error ? e.message : String(e)}`);
+                    // 不要在这里 reject，因为可能收到的是其他请求的响应
                 }
             };
-            // Add the message handler
+            // 添加消息处理函数
             if (this.ws) {
                 this.ws.on('message', messageHandler);
             }
+            else {
+                clearTimeout(timeoutId);
+                const errorMsg = 'WebSocket is not initialized';
+                this.logger.error(errorMsg);
+                reject(new Error(errorMsg));
+                return;
+            }
+            // 发送请求
             try {
-                if (this.ws) {
-                    this.ws.send(JSON.stringify(request));
-                }
-                else {
-                    throw new Error('WebSocket is not initialized');
-                }
+                const requestStr = JSON.stringify(request);
+                this.logger.debug(`Sending request: ${requestStr}`);
+                this.ws.send(requestStr);
+                this.logger.debug(`Request sent for method: ${method}`);
             }
             catch (error) {
                 clearTimeout(timeoutId);
                 if (this.ws) {
                     this.ws.removeListener('message', messageHandler);
                 }
-                reject(new Error(`Failed to send request: ${error instanceof Error ? error.message : String(error)}`));
+                const errorMsg = `Failed to send request: ${error instanceof Error ? error.message : String(error)}`;
+                this.logger.error(errorMsg);
+                reject(new Error(errorMsg));
             }
         });
     }
